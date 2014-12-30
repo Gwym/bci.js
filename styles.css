@@ -1,0 +1,15 @@
+/* CSS file placeholder. */
+
+canvas {
+  border: 1px solid black;
+}
+
+button {
+  margin: 2px;
+}
+
+#text_console {
+  background-color: #CCC;
+  width: 100%;
+  min-height: 4em;
+}

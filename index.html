@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>bci.js</title>
+  <link rel="stylesheet" href="styles.css">
+  <script id="bci_worker" type="javascript/worker" >
+
+    var LIMIT = 512;
+    var FRAME_LENGTH = 33;
+    var END_OFFSET = FRAME_LENGTH - 2; // -1 (START is shifted) ; -1 (zero indexed)
+
+    var chunks = [];
+    var buf = [];
+    var samples = [];
+    var accel = [];
+    var store_data = false;
+    var store_accel = false;
+    var frame_count = 0;
+
+    this.onmessage = function(e){
+
+      if (e.data instanceof ArrayBuffer) { // data message
+
+        var u8view = new Uint8Array(e.data);
+
+        for (var i = 0 ; i < u8view.length ; i++) {
+          buf.push(u8view[i]);
+        }
+
+        if (buf.length > LIMIT) {
+          this.postMessage({error: 'No frame decoded, discarding whole buffer.',
+            length: buf.length });
+          buf = [];
+          return;
+        }
+
+        var current_byte, current_frame_counter, d, j, i;
+
+        while (buf.length > FRAME_LENGTH) {
+
+          current_byte = buf.shift();
+
+          if (current_byte === 0xA0) {
+            if (buf[END_OFFSET] === 0xC0) { // FRAME_LENGTH - 2
+
+              d = buf.splice(0, FRAME_LENGTH - 1);
+
+              // this.decodeSimple(frame);
+
+              current_frame_counter = d[0];
+
+              i = 1;
+              for (j = 0 ; j < 8 ; j++) {
+                // 24 to 32
+                samples[j] = d[i++] << 16 |  d[i++] << 8 | d[i++];
+                if (samples[j] > 0x7FFFFF) {
+                  samples[j] -= 0x1000000;
+                }
+              }
+              for (j = 0 ; j < 3 ; j++) {
+                // 16 to 32
+                accel[j] = d[i++] << 8 | d[i++];
+                if (accel[j] > 0x7FFF) {
+                  accel[j] -= 0x10000;
+                }
+              }
+
+              frame_count++;
+              if (store_data) {
+                chunks.push(samples); // ?? clone ? copy ?
+              }
+
+              // if (this.frame_count % 50 == 0) {
+              //  ui_frame_count.textContent = this.frame_count;
+              //  ui_fps.textContent = (1000 * this.frame_count / (performance.now() - this.start_time)).toFixed(2);
+              //}
+
+                  // TODO event managment, worker postMessage ?
+                  // console.log('decodeDegraded found r:' + this.current_read_offset + ' w:' + this.current_write_offset);
+              this.postMessage(samples);
+            }
+            else {
+              this.postMessage({
+                error: 'start not matching stop',
+                len: buf.length,
+                char: buf[END_OFFSET] });
+            }
+          }
+          else {
+            this.postMessage({ // TODO : trigger
+              error: 'drop one byte',
+              byte: current_byte });
+          }
+        } // end while
+      }
+      else { // action message
+
+        if (e.data.action === 'export') {
+
+          this.postMessage(new Blob(chunks, { type: 'application/octet-binary' }));
+        }
+        else if (e.data.action === 'clear') {
+          samples = [];
+          accel = [];
+          chunks = [];
+        }
+      }
+      // TODO : action set store tofile true/false
+    };
+  </script>
+  <script src="test.js"></script>
+  <script src="main.js"></script>
+  <script src="bci.js"></script>
+</head>
+
+<body>
+  <div id="panel">
+    <span id="control">
+    </span>
+    <span id="streaming">
+      <a id="save"></a>
+      <var id="fps">0</var>
+      <label>fps</label>
+      <var id="frame_count">0</var>
+      <label>samples</label>
+      <var id="frame_miss">0</var>
+      <label>miss</label>
+    </span>
+  </div>
+  <section id="canvas_container">
+  </section>
+  <section id="console_container">
+    <textarea id="text_console" readonly></textarea>
+  </section>
+</body>
+</html>
