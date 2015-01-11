@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>bci.js</title>
+    <link rel="shortcut icon" type="image/png" href="favicon.png" />
+    <script id="bci_worker" type="javascript/worker" >
+
+var log = function(s) { self.postMessage({log: s}) }
+
+onmessage = function(e) {
+
+  switch (e.data.action) {
+    case 'create':
+      socketFactory(e.data.path);
+      break;
+    case 'close':
+      websocket.close();
+      break;
+    case 'send':
+      if (typeof e.data.data === 'object') {
+        self.postMessage({log: 'sending ' + JSON.stringify(e.data.data)});
+        websocket.send(JSON.stringify(e.data.data));
+      }
+      else {
+        self.postMessage({error: 'message.data is not an object'}); // TODO (1) : send array
+      }
+      break;
+    default: postMessage({error: 'unknown action', event:e.data.action});
+  }
+}
+
+var websocket;
+var socketFactory = function(path) {
+
+  websocket = new WebSocket(path, 'yh0.0.1');
+  websocket.onerror = function (e) { self.postMessage({error: JSON.stringify(e)});  };
+  websocket.onopen = function (e) { self.postMessage({event: 'open'}); };
+  websocket.onclose = function (e) { self.postMessage({event: 'close', code: e.code, reason: e.reason}); };
+  websocket.onmessage = function (e) {
+    if (e.data instanceof ArrayBuffer) {  // if (e.data.target === 'worker') {
+      // TODO (0) : process data in worker, FFT, min, max etc
+      self.postMessage({target: 'collector', data: e.data});
+    }
+    else {
+      try {
+        self.postMessage(JSON.parse(e.data));
+      }
+      catch(e) {
+  		  self.postMessage({error: JSON.stringify(e), data: e.data});
+  		}
+    }
+  }
+}
+  </script>
+  <script src="bci_canvas.js"></script>
+  <script src="main.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <nav id='mainmenu'>
+    <button id="menu-symbol" class="icon-btn">&#9783;</button>
+    <select id='data-source'>
+    </select>
+    <button id="data-source-state"></button>
+  </nav>
+  <div id="blocks-control">
+  </div>
+  <section id="canvas_container">
+  </section>
+  <section id="console_container">
+    <textarea id="text_console" readonly></textarea>
+  </section>
+  <section id="panel-auth">
+    <form id="form-auth" onsubmit="return false;">
+        <input type='text' id="user-id" placeholder="identifier" required>
+        <input type="password" id="user-pwd" placeholder="password" required>
+        <div><input type="submit" id="submit-auth" value="Authenticate"></div>
+    </form>
+  </section>
+</body>
+</html>

@@ -1,0 +1,24 @@
+{
+"name": "bcijs",
+"version": "0.0.1",
+"description": "Brain computer interface in Javascript with node.js",
+"author": {
+  "name": "Gwym Hendawyr",
+  "email": "gwym.hendawyr@gmail.com",
+  "url": "http://www.yenah.net"
+},
+"main": "./server",
+"repository": {
+"type": "git",
+"url": "git://github.com/Gwym/bcijs.git"
+},
+"dependencies": {
+  "serialport": "",
+  "ws": "",
+  "node-static" : "",
+  "bcrypt": ""
+},
+"engines": {
+  "node": ">=0.11.13"
+}
+}

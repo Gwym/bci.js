@@ -1,0 +1,146 @@
+/* CSS file placeholder. */
+
+* {
+  margin: 0;
+  padding: 0;
+}
+
+canvas {
+  border: 1px solid black;
+}
+
+button {
+  margin: 2px;
+}
+
+#text_console {
+  background-color: #CCC;
+  width: 99%;
+  min-height: 4em;
+}
+
+#mainmenu {
+  /* float: left; */
+  background-color: #dfdfdf;
+}
+
+#menu-symbol {
+  color: gray;
+}
+
+.connected {
+  color: green;
+  padding: 4px;
+}
+
+.disconnected {
+  color: red;
+  padding: 4px;
+}
+
+.icon-btn {
+  height: 32px;
+  width: 32px;
+  cursor: default;
+  font-size: 16px;
+}
+
+#panel-auth {
+  display: none;
+  width: 100%;
+  height: 100%;
+  background-color:  rgba(0, 0, 0, 0.5);
+  position: fixed;
+  top:0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 98;
+}
+
+#form-auth {
+  background-color: #444;
+  text-align: center;
+  width: 350px;
+  height: 150px;
+  position: fixed;
+  top:0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  margin: auto;
+  z-index: 99;
+}
+
+
+#form-auth input {
+  font-size: 120%;
+  margin: 10px;
+  width: 300px;
+}
+
+#blocks-control {
+  border: 1px solid gray;
+  padding: 3px;
+  background-color: silver;
+}
+
+#blocks-control h1 {
+  font-size: 15px;
+}
+
+#blocks-control label {
+  margin-left: 5px;
+  margin-right: 5px;
+}
+
+.serial_start_stop_button {
+  padding-left: 1em;
+  padding-right: 1em;
+  margin-right: 15px;
+  font-size: 15px;
+}
+
+/* board states */
+
+#board_state {
+  padding: 2px;
+  margin-left: 5px;
+  margin-right: 5px;
+  border-width: 1px;
+  border-style :  solid;
+}
+
+.STATE_CLOSED {
+  background-color: #BDBDBD;
+  border-color: #6E6E6E;
+}
+.STATE_OPENING {
+  background-color: #FA5858;
+  border-color: #B40404;
+}
+.STATE_INIT {
+  background-color: #FA8258;
+  border-color: #FE642E;
+}
+.STATE_IDLE {
+  background-color: #81F781;
+  border-color: #298A08;
+}
+.STATE_STREAMING {
+  background-color: #81DAF5;
+  border-color: #58D3F7;
+}
+.STATE_WAIT_ENDING {
+  background-color: #FA8258;
+  border-color: #FE642E;
+}
+
+#board_error {
+  padding: 2px;
+  margin-left: 5px;
+  margin-right: 5px;
+  background-color: #FE2E2E;
+  border: 1px solid #DF0101;
+  display: none;
+}
