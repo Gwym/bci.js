@@ -10,11 +10,11 @@ Usage :
 ------------
 Download or fetch form github, install dependencies and launch server :
 ```
-npm install
 cd server
+npm install
 node server.js
 ```
-or 
+or for the last line,
 ```
 node --harmony server.js
 ```
@@ -23,7 +23,7 @@ if you plan to use the serial/board simulator.
 The board and databases are managed from webapp :
 
 webapp (requires a server to connect)
-=======
+---------------------------------------------------------------
 
 Usage :
 ------------
