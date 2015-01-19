@@ -1,10 +1,19 @@
+// node.js server for bci.js (brain controller interface in Javascript)
+// usage : node server.js  or  node --harmony server.js if simulator is used
+//
+// Created: Jan 2015, <gwym.hendawyr@gmail.com>
+//
+// May require, depending on configuration : serial-nodeport, ws, node-mongodb-native
+//
+// SOFTWARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED
+
 "use strict"
 
 // CONFIGURATION
-// TODO (5) : loadFile(configuration.json)  ?
+// TODO (5) : loadFile(configuration.json)
 
 var configuration =  {
-  authenticate: false, // true: user auth required
+  authenticate: false, // true: user auth required - NOT IMPLEMENTED
   serve_webapp: true
 }
 
@@ -24,17 +33,16 @@ var env = {
 
 // array of blocks to load
 
-// TODO (1) : from config  blocks[identifier] =    factory(identifier, opt, dispatcher ) ...
-
 var blocks = {
   // system: { require:'./blocks/user_manager.js', type: 'system', options: { persistor: 'filedb' } },
-  serial0: { require:'./blocks/obci_serial.js', type: 'serial', name: 'OBCI USB', options: { port :'/dev/ttyUSB0', baudrate: 115200 } },
-  // serial1: { require:'./blocks/obci_serial.js', type: 'serial', name: 'Simulator', options: { use_simulator: true, framerate: 1000 } },
+  serial0: { require:'./blocks/obci_serial.js', type: 'serial', name: 'OBCI USB', options: { port :'/dev/ttyUSB0', baudrate: 115200, log_control: false } },
+  // serial1: { require:'./blocks/obci_serial.js', type: 'serial', name: 'Simulator', options: { use_simulator: false, framerate: 1000, log_control: false } },
   // filedb: { require:'./blocks/persistor_file.js', type: 'persistor', name: 'file://data/', options: { path: env.filedb_path } }
   // mongodb: { require:'./blocks/persistor_mongodb.js', type: 'persistor', name: 'Mongodb', options: { env: env } }
 }
 
 // END OF CONFIGURATION
+
 
 var fs = require('fs');
 var http = require('http');
@@ -47,7 +55,7 @@ var WebSocketServer = WebSocket.Server;
 var bcrypt = require('bcrypt');
 // end block auth
 
-/*
+
 // block mongodb
 
 var MongoClient;
@@ -59,7 +67,7 @@ try {
   MongoClient = require('mongodb').MongoClient;
 }
 catch (e) {
-  console.log('Mongo module not found, fallback to memory');
+  console.log('Mongodb module not found, fallback to memory/file');
   MongoClient = { connect: function() {console.log('TODO datastore.connect')} };
   tracks = {insert: function(data, options, callback) {console.log('TODO tracks.insert ' + data); callback(null, data)} };
 
@@ -68,7 +76,7 @@ catch (e) {
   }
 }
 
-
+/*
 
 var mongo_url = 'mongodb://' + env.db_user + env.db_host + ':' + env.db_port + '/' + env.db_name;
 
@@ -128,7 +136,7 @@ console.log('%s: Node server started on %s:%d',
 // cf. OPENSHIFT doc : plain WebSockets ws:// will use port 8000 and secured connections wss:// port 8443
 
 var wss = new WebSocketServer(
-	{ server: server, clientTracking: true }, // FIXME : clientTracking seems not to work ? TODO (2) : verifyClient
+	{ server: server, clientTracking: true }, // TODO (2) : verifyClient
 	function() {
   		  console.log('WS > listen callback ' );
 });
@@ -186,16 +194,16 @@ wss.on('connection', function(ws) {
 
 	var setMessageHandler = function() {
 
-	  ws.onclose = function() {
+	  ws.on('close', function() {
 	    console.log('WS > close  ' + ws.userID);
-	  };
+	  });
 
 	  ws.sendJSON = function(o) { this.send(JSON.stringify(o)) };
 
-    // FIXME : node removeListener('message', f) doesn't work ?! => using once then on()
+    // TODO (1) : replace once by node addListener + removeListener('message', f)
     ws.on('message', 	function(message) { // autenthicated onmessage
 
-            // TODO (1) : if (message instanceof ArrayBuffer && ws.raw_dispatcher) { ws.raw_dispatcher(message) }  // incoming data, destination previously defined
+            // TODO (2) : if (message instanceof ArrayBuffer && ws.raw_dispatcher) { ws.raw_dispatcher(message) }  // incoming data, destination previously defined
             // else
     				try {
 
@@ -207,7 +215,7 @@ wss.on('connection', function(ws) {
     					}
     					m.origin = ws.ID;
 
-              // TODO (1) : limit target and action to numbers to avoid calling javascript API or check
+              // TODO (2) : limit target and action to numbers to avoid calling javascript API or check
     					// if (!isNaN(parseInt(m.target, 10)) && dispatcher[m.target]) {
     					// if ( typeof m.target === 'number' && dispatcher[m.target]) {
     					// dispatcher[m.target](m, ws);
@@ -232,7 +240,7 @@ wss.on('connection', function(ws) {
     // ws.onclose
 	}
 
-	if (configuration.authenticate) { // TODO : && target === system && action === login
+	if (configuration.authenticate) {
 
     // set auth handler
   	ws.once('message', function(message) { // unsafe onmessage
@@ -271,7 +279,7 @@ wss.on('connection', function(ws) {
 	  ws.sendJSON( {target: 'system', action:'auth'} );
 	}
 	else {
-	  console.log('set guest handler');
+	  console.log('server > No user, set guest handler');
 	  setMessageHandler();
 	}
 
@@ -293,7 +301,7 @@ var defaultDispatcher = function(req, ws) {
         current_api_state[i].state = blocks[i].getState();
       }
     }
-    console.log('send { action: "api", data:'  + JSON.stringify(current_api_state) + '}');
+    console.log('dispatcher > Send { action: "api", data:'  + JSON.stringify(current_api_state) + '}');
     ws.sendJSON( { action: 'api', data: current_api_state } );
   }
 }
@@ -317,32 +325,3 @@ var replyAsync = function(wsID, message) {
     console.warn('no socket ' + wsID + ' for message ' + JSON.stringify(message));
   }
 }
-
-// dispatcher
-
-// watch node for state change, disconnect, close and perform clean termination
-// Object.observe() seems problematic
-
-// example : serialObserver broadcasts serial start/stop/conf to all registered ws
-
-/* var nodeObserver = function() {
-
-}
-
-nodeObserver.protoype = {
-	_state: 'STATE_OPENING',
-	get state () {
-		return this._state;
-	},
-	set state(new_state) {
-	  console.log('set state ' +  this._state + ' >> ' + new_state);
-
-	  if (state_table[new_state] === undefined) {
-	    system.warn({ error: 'UNKNOWN_STATE', state: new_state});
-	    return;
-	  }
-
-		this._state = new_state;
-	}
-}; */
-

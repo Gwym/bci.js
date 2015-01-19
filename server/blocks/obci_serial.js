@@ -42,7 +42,12 @@ module.exports.factory = function(identifier, options, dispatcher) {
   var baudrate = options.baudrate || 115200;
 
   var serialPort;
-  var pending_control = false;
+  var pending_write = [];
+  var writing = false;
+
+  if (options.log_control) {
+    var log_stream;
+  }
 
   var board = {
     open: function() {
@@ -53,6 +58,21 @@ module.exports.factory = function(identifier, options, dispatcher) {
             machine.event('EVENT_ERROR', err);
           }
           else {
+            // log
+            if (options.log_control) {
+              var d = new Date();
+              var filename = 'logs/log_c_' + d.getFullYear() + '-' + (d.getMonth()+1) + '-' +  d.getDate() + '-' +
+                d.getHours()  + '-' +  d.getMinutes() + '-' + d.getSeconds() + '_' + d.getMilliseconds() + '.log';
+              console.log('log control to ' + filename);
+              log_stream = require('fs').createWriteStream(filename);
+
+              log_stream.on('error', function (err) {
+                options.log_control = false;
+                console.error(err);
+                dispatcher( { target: identifier, action:'onerror', data: err.message});
+              });
+            }
+
             machine.event('EVENT_OPEN');
           }
       });
@@ -65,26 +85,72 @@ module.exports.factory = function(identifier, options, dispatcher) {
             machine.event('EVENT_ERROR', err);
           }
       });
-    },
-    send: function(c) {
-      if (pending_control || c === 's' || c === 'b') {
-        return false; // TODO (3) : reply error
+
+      if (options.log_control) {
+        log_stream.end();
       }
-      pending_control = c;
+
+    },
+    feed: function(c) {
+
+      console.log('board.feed >' +  c + ' (' + typeof c + ') isArray :' + (c instanceof Array));
+
+      if (typeof c === 'number') {
+        pending_write.push(c); // assume this is the charcode
+      }
+      else if (typeof c === 'string') {
+        for (var i = 0 ; i < c.length ; i++) {
+          pending_write.push(c[i]);
+        }
+      }
+      else if (c instanceof Array) {
+        pending_write = pending_write.concat(c);
+      }
+      else {
+        var err = new Error('board.feed > unknown type');
+        console.error(err);
+        dispatcher( { target: identifier, action:'onerror', data: err });
+        machine.event('EVENT_ERROR', err);
+      }
+    },
+    // return false if there is no more character to send or true if
+    sendNext: function() {
+
+      var c = pending_write.shift();
+
+      if (c === undefined) { // end of transmission
+        console.log('sendNext > End of transmission');
+        return false;
+      }
+
+      if ( typeof c !== 'string' || c.length !== 1 || c === 's' || c === 'b') { // TODO (2) : check this in feed directly ?
+        console.error('sendNext > Error : use api for command ' + c + ' ' + typeof c ); // TODO (3) : reply error to websocket
+        return false;
+      }
+
+      var d = new Date();
+      console.log(d.toLocaleTimeString() + ':' + d.getMilliseconds() + ' > SEND NEXT ' + c);
+
+      if (options.log_control) {
+          log_stream.write(d.toLocaleTimeString() + ':' + d.getMilliseconds() + ' >>> ' + c + '\r\n');
+          // log_stream.write(process.hrtime() + c + '\r\n');
+      }
+
       serialPort.write(c, function(err, results) {
-          console.log('send '+ c + ' callback err: ' + err + ' results ' + results);
+          console.log('sendNext > '+ c + ' callback err: ' + err + ' results ' + JSON.stringify(results));
           if (err) {
             dispatcher( { target: identifier, action:'onerror', data: err });
             machine.event('EVENT_ERROR', err);
           }
       });
+
+      return true; // TODO (1) : should be async, in case of write err (EVENT_WRITTEN ?)
     },
     startStream: function() {
       serialPort.parse_control = false;
       serialPort.parse_frame = true;
-      pending_control = 'b';
       serialPort.write('b', function(err, results) {
-        console.log('write b callback err: ' + err + ' results ' + results);
+        console.log('startStream > Write b callback err: ' + err + ' results ' + results);
         if (err) {
             dispatcher( { target: identifier, action:'onerror', data: err });
             machine.event('EVENT_ERROR', err);
@@ -93,21 +159,23 @@ module.exports.factory = function(identifier, options, dispatcher) {
     },
     stopStream: function() {
       serialPort.parse_control = true;
-      pending_control = 's';
       serialPort.write('s', function(err, results) {
-          console.log('write s callback err: ' + err + ' results ' + results);
+          console.log('stopStream > Write s callback err: ' + err + ' results ' + results);
           if (err) {
             dispatcher( { target: identifier, action:'onerror', data: err });
             machine.event('EVENT_ERROR', err);
+          }
+          else {
+            console.log('sent s (stop)');
+            dispatcher( { target: identifier, action:'oncontrol', data: { control:'stop' } });
           }
       });
     },
     reset: function() {
       serialPort.parse_frame = false;
       serialPort.parse_control = true;
-      pending_control = 'v';
       serialPort.write('v', function(err, results) {
-        console.log('write v callback err:' + err + ' results ' + results);
+        console.log('reset > Write v callback err:' + err + ' results ' + results);
         if (err) {
             dispatcher( { target: identifier, action:'onerror', data: err });
             machine.event('EVENT_ERROR', err);
@@ -117,31 +185,37 @@ module.exports.factory = function(identifier, options, dispatcher) {
     listen: function() {
       serialPort.parse_frame = false;
       serialPort.parse_control = true;
-      pending_control = false;
     }
   }
 
-  // TODO (4) : manage EVENT_ERROR and EVENT_CLOSE in all states ?
+  // TODO (4) : manage EVENT_ERROR and EVENT_CLOSE in all states +  user.option.reset_board_on_error ?
 
   var state_table = {
     'STATE_CLOSED' : {
       'EVENT_INIT': function() {
         board.open();
-        machine.setTimer('EVENT_TIMEOUT', 3000);
+        machine.setTimer('EVENT_TIMEOUT', 3000); // 3s
         return 'STATE_OPENING';
       }
     },
-    'STATE_OPENING' : {
+    'STATE_OPENING' : { // serial port opening
       'EVENT_OPEN': function() {
         machine.clearTimer('EVENT_TIMEOUT');
         board.listen();
 
-        // option reset on open
-        board.reset();
-        machine.setTimer('EVENT_TIMEOUT', 3000);
+        var option_reset_board_on_opening = true; // TODO (3) : user.options.reset_board_on_opening
 
-        // option wait for connecting board ?   machine.setTimer('EVENT_TIMEOUT', 10000); return 'STATE_INIT'; // TODO (1) : option autoreset on open ?    //
-        return 'STATE_WAIT_ENDING';
+        if (option_reset_board_on_opening) {
+          board.reset();
+          // machine.setTimer('EVENT_TIMEOUT', 3000);
+          // return 'STATE_WAIT_ENDING';
+        }
+        else { // option wait for board to be turned on by user
+          // machine.setTimer('EVENT_TIMEOUT', 20000); // 20s
+          // dispatcher( { target: identifier, action: 'onstate', data: { waiting_for_eot: true } } );
+          // return 'STATE_INIT';
+        }
+        return 'STATE_IDLE';
       },
       'EVENT_ERROR': function() {
         machine.clearTimer('EVENT_TIMEOUT');
@@ -153,19 +227,26 @@ module.exports.factory = function(identifier, options, dispatcher) {
         return 'STATE_CLOSED';
       }
     },
-    'STATE_INIT': {
+    'STATE_INIT': { // waiting board to be turned on
       'EVENT_END_OF_SECTION': function(data) {
         machine.clearTimer('EVENT_TIMEOUT');
-        // dispatcher( { target: identifier, action:'onready', control: pending_control, data: data } );
         return 'STATE_IDLE';
       },
-      'EVENT_TIMEOUT': function() { // option wait for connecting board
+      'EVENT_GET_PUT': function(cmd) {  // event for !option.reset_board_on_opening, TODO (3) : limit to command reset 'v' ?
+        machine.clearTimer('EVENT_TIMEOUT');
+        machine.setTimer('EVENT_TIMEOUT', 5000);
+        board.feed(cmd);
+        board.sendNext();
+        return 'STATE_INIT';
+      },
+     /* 'EVENT_TIMEOUT': function() { // option wait for connecting board and waiting for v reset // done client side now !
+
         dispatcher( { target: identifier, action:'onerror', data: 'timeout' });
         board.reset();
         // TODO (1) : if retries counter > 3 EVENT_CLOSE ?
-         machine.setTimer('EVENT_CLOSE', 5000);
+        machine.setTimer('EVENT_CLOSE', 5000); // 5s
         return 'STATE_INIT';
-      },
+      }, */
       'EVENT_CLOSE' : function() {
         board.close();
         return 'STATE_CLOSED';
@@ -173,15 +254,62 @@ module.exports.factory = function(identifier, options, dispatcher) {
     },
     'STATE_IDLE' : {
       'EVENT_STREAM_START': function() {
+
         board.startStream();
+
         return 'STATE_STREAMING';
       },
       'EVENT_GET_PUT': function(cmd) {
-        board.send(cmd.command);
-        return 'STATE_WAIT_ENDING';
+
+        board.feed(cmd);
+        if (!writing) {
+
+        var d = new Date();
+        console.log(d.toLocaleTimeString() + ':' + d.getMilliseconds() + ' > GET PUT ' + cmd);
+
+          // dispatcher( { target: identifier, action: 'onstate', data: { writing: true } } );
+          machine.setTimer('EVENT_WRITE_NEXT', 20); // trigger first send event
+        }
+
+        return 'STATE_IDLE';
+      },
+      'EVENT_CONTROL': function(data) {
+
+        // machine.clearTimer('EVENT_TIMEOUT');
+        dispatcher( { target: identifier, action:'oncontrol', data: data });
+
+        return 'STATE_IDLE';
+      },
+      'EVENT_WRITE_NEXT': function() {
+
+        writing = board.sendNext();
+
+        if (writing) {
+          machine.setTimer('EVENT_WRITE_NEXT', 100); // trigger next send event
+        }
+        // else { dispatcher( { target: identifier, action: 'onstate', data: { writing: false } } ); }
+
+        return 'STATE_IDLE';
+      },
+      'EVENT_TIMEOUT': function() {
+
+        // TODO (0) : send and reset control_buffer ?
+        // dispatcher( { target: identifier, action: 'onstate', data: { waiting_for_eot: false } } );
+        dispatcher( { target: identifier, action:'onerror', data: 'timeout' });
+
+        return 'STATE_IDLE';
+      },
+      'EVENT_ERROR' : function(err) {
+
+        dispatcher( { target: identifier, action:'onerror', data: err });
+        board.close();
+
+        return 'STATE_CLOSED';
       },
       'EVENT_CLOSE' : function() {
+
         board.close();
+
         return 'STATE_CLOSED';
       }
     },
@@ -194,63 +322,24 @@ module.exports.factory = function(identifier, options, dispatcher) {
     },
     'STATE_WAIT_ENDING': {
       'EVENT_END_OF_SECTION': function(data) {
-        machine.clearTimer('EVENT_TIMEOUT');
-        if (pending_control !== 's') {
-          dispatcher( { target: identifier, action:'oncontrol', control: pending_control, data:data });
-        }
-        // else { }  // do not send buffer if pending control is 's' (stop stream)
 
-        pending_control = false;
+        machine.clearTimer('EVENT_TIMEOUT');
+        dispatcher( { target: identifier, action:'oncontrol', data: data });
+
         return 'STATE_IDLE';
       },
       'EVENT_TIMEOUT': function() {
+
+        // TODO (0) : send and reset control_buffer ?
         dispatcher( { target: identifier, action:'onerror', data: 'timeout' });
-        board.reset();
+        // TODO (3) : user.option.reset_board_on_timeout
+        /* board.reset();
         machine.setTimer('EVENT_TIMEOUT', 3000);
-        return 'STATE_INIT';
+        return 'STATE_INIT'; */
+        return 'STATE_IDLE'; // do not reset + timeout, it's the user choice to reset or not
       }
     }
   }
-
-  /*
-  // DOESN'T WORK, Object.observe is not consistent on multiple set, and not implemented in firefox
-
-  var machine = {
-    state: 'STATE_INIT',
-    event: ''
-  };
-
-  console.log(state_table);
-
-  Object.observe(machine, function(changes) {
-
-    console.log(changes);
-
-    changes.forEach(function(change) {
-
-      if (change.name === 'event') {
-          console.log('event ' + change.object.event + ' state:' + change.object.state);
-          if (state_table[change.object.state]) {
-            if (state_table[change.object.state][change.object.event]) {
-              var new_state = state_table[change.object.state][change.object.event](change.object.event);
-              console.log('new state: ' + new_state);
-            }
-            else {
-              console.error({ error: 'UNCAUGHT_EVENT', value: change.object.event});
-            }
-          }
-          else {
-            console.error({ error: 'UNKNOWN_STATE', value: change.object.state});
-          }
-      }
-      else if (change.name === 'state') {
-        console.log(' state:' + change.object.state);
-      }
-      else {
-        console.error({ error: 'UNKNOWN_CHANGE', value: change});
-      }
-    });
-  }); */
 
   var machine = {
     timers: [],
@@ -264,14 +353,17 @@ module.exports.factory = function(identifier, options, dispatcher) {
   	    console.warn({ error: 'UNKNOWN_STATE', state: new_state});
   	    return;
   	  }
-  	  console.log('set state ' +  this._state + ' >> ' + new_state);
-  	  dispatcher( { target: identifier, action: 'onstate', data: { state: new_state, old_state: this._state } } ); // is old_state really usefull ?
 
-  		this._state = new_state;
+  	  if (this._state !== new_state) {
+  	    // console.log('set state ' +  this._state + ' >> ' + new_state);
+  	    dispatcher( { target: identifier, action: 'onstate', data: { state: new_state, old_state: this._state } } ); // is old_state really usefull ?
+    		this._state = new_state;
+  	  }
   	},
   	event: function(e, data) {
 
-  	  console.log('{event:' + e + ' data: ' + data + '}');
+      var d = new Date();
+  	  // console.log(d.toLocaleTimeString() + ':' + d.getMilliseconds() + ' > event:' + e + ' data: ' + (typeof data === 'string' ? data.replace(/\r/gm,'\\r').replace(/\n/gm,'\\n') : data));
 
   	  if (state_table[this._state][e] === undefined) {
   	    console.error({ error: 'UNKNOWN_EVENT', event: e, state: this._state});
@@ -284,12 +376,19 @@ module.exports.factory = function(identifier, options, dispatcher) {
   	  }
   	},
   	setTimer: function(e, duration) {
-  	  // TODO : reset existing or duplicate ?
-  	  this.timers[e] = setTimeout(function() { machine.event(e); }, duration);
+  	  // TODO (3) : reset existing or duplicate ?
+  	  if (this.timers[e]) {
+  	    console.error('setTimer > Error : timer already set ' + e);
+  	    throw new Error(' timer already set'); // return;
+  	  }
+  	  this.timers[e] = setTimeout(function() { delete machine.timers[e]; machine.event(e); }, duration);
   	},
   	clearTimer: function(e) {
+
   	  if (this.timers[e] !== undefined) {
   	    clearTimeout(this.timers[e]);
+  	    delete this.timers[e];
+  	    console.log('TIMERS > Clear timer ' + e + ' ' + this.timers);
   	  }
   	  else {
   	    console.error({ error: 'UNKNOWN_TIMER', event: e});
@@ -302,10 +401,13 @@ module.exports.factory = function(identifier, options, dispatcher) {
   var obci_parser = function () {
 
     // control parser
-    var control_buffer = new Buffer(0),
-        control_buffer_offset = 0,
-        pattern = ['$'.charCodeAt(0), '$'.charCodeAt(0), '$'.charCodeAt(0)], // '$$$',
-        pattern_offset = 0;
+    var // control_buffer = new Buffer(0),
+        // control_buffer_offset = 0,
+        control_string = '',
+        //pattern = ['$'.charCodeAt(0), '$'.charCodeAt(0), '$'.charCodeAt(0)], // '$$$',
+        pattern_crlf = '\r\n',
+        pattern_eot = '$$$';
+       // pattern_offset = 0;
 
     // frame parser
     var LIMIT = 512;
@@ -317,36 +419,27 @@ module.exports.factory = function(identifier, options, dispatcher) {
     var accel = [];
     var frame_count = 0;
 
+    var timestamp_start = process.hrtime();
+
+
+
     return function(emitter, buffer) {
 
-      // console.log('PARSER emitter ' + emitter + ' buffer ' + buffer + ' parse_control:' + emitter.parse_control + ' parse_frame:' + emitter.parse_frame );
+      var timestamp_step = process.hrtime(timestamp_start);
+      timestamp_start =  process.hrtime();
+      // console.log(timestamp_step + ' obci_parser > len:' + buffer.length + ' parse_control:' + emitter.parse_control + ' parse_frame:' + emitter.parse_frame );
 
       if (emitter.parse_control) {
 
-        control_buffer = Buffer.concat([control_buffer, buffer], control_buffer.length + buffer.length);
+        machine.event('EVENT_CONTROL', buffer.toString());
 
-        if (pattern.length) {
-          while (control_buffer_offset < control_buffer.length) {
-
-             // checker.next(this.buffer[this.offset])
-            if (control_buffer[control_buffer_offset] === pattern[pattern_offset]) {
-
-              // console.log('match ' + pattern[pattern_offset] + ' ' + control_buffer[control_buffer_offset] + ' @ ' + control_buffer_offset + ' ' + pattern_offset);
-              if (++pattern_offset >= pattern.length) {
-
-                machine.event('EVENT_END_OF_SECTION', (control_buffer.slice(0, control_buffer_offset - pattern.length + 1)).toString());
-
-                control_buffer = control_buffer.slice(control_buffer_offset, control_buffer.length); // continue at the begining
-                control_buffer_offset = 0;
-                pattern_offset = 0;
-              }
-            }
-            else {
-              // console.log('reset pattern ' + pattern[pattern_offset] + ' ' + control_buffer[control_buffer_offset] + ' @ ' + control_buffer_offset + ' ' + pattern_offset);
-              pattern_offset = 0;
-            }
-            control_buffer_offset++;
-          }
+        if (options.log_control) {
+          var d = new Date();
+  	      //console.log(d.toLocaleTimeString() + ':' + d.getMilliseconds() + ' > event:' + e + ' data: ' + (typeof data === 'string' ? data.replace(/\r/gm,'\\r').replace(/\n/gm,'\\n') : data));
+          log_stream.write(d.toLocaleTimeString() + ':' + d.getMilliseconds() + ' < ' + buffer.toString().replace(/\r/gm,'\\r').replace(/\n/gm,'\\n') + '\r\n');
+          // log_stream.write(process.hrtime() + buffer.toString() + '\r\n');
+          // log_stream.write(buffer.toString());
+          // log_stream.write(buffer.toJSON());
         }
       }
 
@@ -458,8 +551,15 @@ module.exports.factory = function(identifier, options, dispatcher) {
       machine.event('EVENT_STREAM_STOP');
     },
     req_set: function(m, ws) {
-      console.log('SERIAL get req');
-      machine.event('EVENT_GET_PUT'); // TODO (0) : m
+      console.log('SERIAL get req ' + m);
+    /*  if (['?', 'd', 'D', 'v'].indexOf(m) !== -1) {
+        machine.event('EVENT_GET_PUT', m);
+      }
+      else {
+       console.error('SerialPort.api > res_set unallowed command ' + JSON.stringify(m));
+       // TODO (0) : reply error
+      } */
+      machine.event('EVENT_GET_PUT', m);
     },
     getState: function() {
       return machine.state;

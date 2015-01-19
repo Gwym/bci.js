@@ -8,7 +8,7 @@ var log, info, warn;
   text_console = document.getElementById('text_console');
   text_console.addEventListener('dblclick', function(e) { text_console.value = '' });
 
-  log = function(s) { text_console.value = s + '\n' + text_console.value; console.log(s); };
+  log = function(s) { var d = new Date(); text_console.value = d.toLocaleTimeString() + ':' + d.getMilliseconds() + ' > ' + s + '\n' + text_console.value; };
   info = function(s) { text_console.value = s + '\n' + text_console.value; console.info(s); };
   warn = function(s) { text_console.value = s + '\n' + text_console.value; console.warn(s); };
 
@@ -22,27 +22,37 @@ var log, info, warn;
   // init
   ui.setSourceStateDisconnected();
 
-  // TODO : ui.fillSourcesOptions()
+  // toggle canvas visibility
+  var canvas_state_button = document.getElementById('canvas-state');
+  canvas_state_button.onclick = function() {
+    var canvas_container =  document.getElementById('canvas_container');
+    if (canvas_container.style.display === 'none') {
+      canvas_container.style.display = 'block';
+      canvas_state_button.textContent = i18n.hide_canvas;
+    }
+    else {
+      canvas_container.style.display = 'none';
+      canvas_state_button.textContent = i18n.show_canvas;
+    }
+  }
+  canvas_state_button.textContent = i18n.hide_canvas;
 
-  var localCapabilities = [
+  var auto_connect = false; // TODO (2) : allow for connecting mutliple server ?  if  yes, put auto_connect in loaclCapabilities
+  var  localCapabilities = [
     { type:'option', value: 'no_source', text: i18n.option_select_source},
-    { type:'option', value: 'ws://127.0.0.1:8080/', text: i18n.option_localhost},
+    { type:'option', value: 'ws://127.0.0.1:8080/', text: i18n.option_localhost, selected: true},
     { type:'option', value: '/dev/ttyUSB0', text: i18n.option_local_serial},
     { type:'option', value: 'file://', text: i18n.option_load_file},
     { type:'option', value: 'local_store', text: i18n.option_local_store},
     { type:'option', value: 'add_option', text: i18n.option_add}
-  ]
+    ];
 
   ui.addCapabilities(localCapabilities);
 
-  var client_api_mapping = {
-    system: { type: 'system' },
-    serial0: { type: 'serial', name: 'OBCI USB' },
-    serial1: { type: 'serial', name: 'Simulator' },
-    filedb: { type: 'persistor', name: 'file://data/' }
-  };
+  if (auto_connect) {
+    document.getElementById('data-source-state').dispatchEvent(new MouseEvent('click'));
+  }
 
-  // system.api(client_api_mapping);
 });
 
 var system = (function() {
@@ -126,245 +136,7 @@ var system = (function() {
       */
 
 
-var ui_serial = function(identifier, options) {
-
-  console.log('options');
-  console.log(options);
-
-
-  var performance_frame_count, performance_start_time;
-  var fps, frame_count, frame_miss;
-
-  var open_close_button, start_stop_button, board_state, board_error;
-
-  var open_handler = function() {
-
-    console.log('open handler');
-
-    open_close_button.disabled = true;
-
-    worker.postMessage({
-          action: 'send',
-          data: {
-            target: identifier,
-            action: 'open'
-          }
-    });
-  }
-
-  var close_handler =  function() {
-
-    console.log('close handler');
-
-    open_close_button.disabled = true;
-
-    worker.postMessage({
-          action: 'send',
-          data: {
-            target: identifier,
-            action: 'close'
-          }
-        });
-
-  }
-
-  var stop_handler = function() {
-
-    console.log('stop handler');
-
-    start_stop_button.disabled = true;
-
-    worker.postMessage({
-          action: 'send',
-          data: {
-            target: identifier,
-            action: 'stop',
-            data: {
-              connect_to_ws: false
-            }
-          }
-    });
-
-    system.unregisterAnim(bci_plot.redraw);
-  }
-
-  var start_handler =  function() {
-
-    console.log('start handler');
-
-    // start_stop_button.disabled = true;
-    open_close_button.disabled = true;
-
-    worker.postMessage({
-          action: 'send',
-          data: {
-            target: identifier,
-            action: 'start',
-            data: {
-              connect_to_ws: true
-            }
-          }
-        });
-
-        performance_frame_count = 0;
-        performance_start_time = performance.now();
-
-        system.registerAnim(bci_plot.redraw);
-  }
-    // system.addControl(name, e)
-    var container = document.getElementById('blocks-control');
-
-     var e, o = document.createElement('h1');
-      o.textContent = (options ? options.name : false ) || i18n.unknown;
-      container.appendChild(o);
-
-      e = document.createElement('div');
-
-     /*  // TODO (1) : dynamic dispatcher
-      o = document.createElement('label');
-      o.textContent = i18n.connect_serial_to;
-      e.appendChild(o);
-
-      o = document.createElement('input');
-      o.type = 'checkbox';
-      o.value = 'connect_to_ws';
-      e.appendChild(o);
-      o = document.createElement('label');
-      o.textContent = i18n.connect_to_ws;
-      e.appendChild(o);
-
-      o = document.createElement('input');
-      o.type = 'checkbox';
-      o.value = 'connect_to_mongodb';
-      e.appendChild(o);
-      o = document.createElement('label');
-      o.textContent = i18n.connect_to_mongodb;
-      e.appendChild(o);
-
-      o = document.createElement('input');
-      o.type = 'checkbox';
-      o.value = 'connect_to_filedb';
-      e.appendChild(o);
-      o = document.createElement('label');
-      o.textContent = i18n.connect_to_filedb;
-      e.appendChild(o); */
-
-      open_close_button = document.createElement('input');
-      open_close_button.className = 'serial_start_stop_button';
-      open_close_button.type = 'button';
-      e.appendChild(open_close_button);
-
-      start_stop_button = document.createElement('input');
-      start_stop_button.className = 'serial_start_stop_button';
-      start_stop_button.type = 'button';
-      e.appendChild(start_stop_button);
-
-      fps = document.createElement('var');
-      fps.textContent = 0;
-      e.appendChild(fps);
-      o = document.createElement('label');
-      o.textContent = i18n.sps;
-      e.appendChild(o);
-      frame_count = document.createElement('var');
-      frame_count.textContent = 0;
-      e.appendChild(frame_count);
-      o = document.createElement('label');
-      o.textContent = i18n.frame_count;
-      e.appendChild(o);
-      frame_miss = document.createElement('var');
-      frame_miss.textContent = 0;
-      e.appendChild(frame_miss);
-      o = document.createElement('label');
-      o.textContent = i18n.frame_miss;
-      e.appendChild(o);
-
-      board_state = document.createElement('span');
-      board_state.id = 'board_state'; // for applying styles
-      e.appendChild(board_state);
-
-      board_error = document.createElement('span');
-      board_error.id = 'board_error'; // for applying styles
-      board_error.addEventListener('dblclick', function(e) { board_error.textContent = ''; board_error.style.display = 'none'; });
-      e.appendChild(board_error);
-
-
-      container.appendChild(e);
-
-  var api = {
-    ondata: function(data) {
-
-      frame_count.textContent = performance_frame_count++;
-      fps.textContent = (1000 * performance_frame_count / (performance.now() - performance_start_time)).toFixed(2);
-
-      bci_data.feed(data.samples);
-      // TODO (1)  : process data.accel
-    },
-    oncontrol: function(m) {
-      console.log('serial unknown oncontrol ' + m.data + ' control' + m.control); // TODO (1) : request decoder
-      console.log(m);
-    },
-    onstate: function(m) {
-      console.log(identifier + ' onstate ' + m.old_state + ' >> ' + m.state); // TODO (1) : request decoder
-
-      board_state.textContent = i18n.board_state[m.state];
-      board_state.className = m.state;
-      switch (m.state) {
-        case 'STATE_CLOSED':
-          open_close_button.value = i18n.open;
-          open_close_button.onclick = open_handler;
-          open_close_button.disabled = false;
-          start_stop_button.value = i18n.start;
-          start_stop_button.disabled = true;
-          break;
-        case 'STATE_OPENING':
-        case 'STATE_INIT':
-          open_close_button.value = i18n.close;
-          open_close_button.onclick = close_handler;
-          open_close_button.disabled = false;
-          start_stop_button.value = i18n.start;
-          start_stop_button.disabled = true;
-          break;
-        case 'STATE_IDLE':
-          console.log('idle (onready) '  + m.control);
-          open_close_button.value = i18n.close;
-          open_close_button.onclick = close_handler;
-          open_close_button.disabled = false;
-          start_stop_button.value = i18n.start;
-          start_stop_button.onclick = start_handler;
-          start_stop_button.disabled = false;
-          break;
-        case 'STATE_STREAMING':
-          open_close_button.value = i18n.close;
-          open_close_button.disabled = true;
-          start_stop_button.value = i18n.stop;
-          start_stop_button.onclick = stop_handler;
-          start_stop_button.disabled = false;
-          break;
-        case 'STATE_WAIT_ENDING':
-          open_close_button.value = i18n.close;
-          open_close_button.onclick = close_handler;
-          open_close_button.disabled = true;
-          start_stop_button.value = i18n.stop;
-          start_stop_button.disabled = true;
-          break;
-        default:
-          console.error('unknown state');
-          break;
-      }
-    },
-    onerror: function(data) {
-      console.error(data);
-      log(data);
-      board_error.textContent = data; // TODO (2) : board_error i18n
-      board_error.style.display = 'inline';
-    }
-  }
-  // apply current state to ui
-  api.onstate(options);
-
-  return api;
-}
-
+// var ui_serial = require('ui_serial.js'); // imported in index.html for now
 
 var ui_change_source_handler = function(e) {
     var data_source = document.getElementById('data-source');
@@ -384,7 +156,7 @@ var ui_change_source_handler = function(e) {
           console.error(e);
         }
         if (message.log) {
-          log('websocket  >' + message.log);
+          log('websocket > ' + message.log);
         }
         if (message.event) {
           if (message.event === 'close') {
@@ -488,6 +260,10 @@ var ui = {
       o.value = list[i].value;
       o.textContent = list[i].text;
       e.appendChild(o);
+
+      if (list[i].selected) {
+        e.selectedIndex = i;
+      }
     }
   },
   hidePanel : function(id) {
@@ -512,6 +288,7 @@ var importScript = function(src, callback) {
 }
 
 // TODO (4) : importScripts(i18n + lang + .js); set accordding to browser locals or users preferences from server
+// TODO (5) : separate i18n par blocks (ui_serial, etc)
 
 var i18n_en = {
   not_implemented: 'Not implemented :',
@@ -519,6 +296,8 @@ var i18n_en = {
   select_source: 'Please select a data source',
   do_connect: 'Connect',
   do_disconnect:  'Disconnect',
+  hide_canvas: 'Hide canvas',
+  show_canvas: 'Show canvas',
   option_select_source: 'Select a source...',
   option_local_serial: 'Browser serial port : /dev/ttyUSB0',
   option_load_file: 'Load file...',
@@ -539,13 +318,39 @@ var i18n_en = {
   close: 'Close',
   unknown: 'Unknown',
   board_state: {
-    'STATE_CLOSED': 'Closed',
-    'STATE_OPENING': 'Opening...',
-    'STATE_INIT': 'Waiting for board ack...',
-    'STATE_IDLE': 'Ready',
-    'STATE_STREAMING': 'Streaming data',
-    'STATE_WAIT_ENDING': 'Busy...'
-  }
+    STATE_CLOSED: 'Closed',
+    STATE_OPENING: 'Opening...',
+    STATE_INIT: 'Waiting for board ack...',
+    STATE_IDLE: 'Ready',
+    STATE_STREAMING: 'Streaming data',
+    STATE_WAIT_ENDING: 'Busy...',
+    STATE_WRITING: 'Writing...'
+  },
+  board_settings: 'Settings : ',
+  board_settings_button: 'Settings',
+  bsb_get: 'Get channels',
+  bsb_get_registers: 'Get registers',
+  bsb_set: 'Apply changes',
+  bsb_reset: 'Reset to default',
+  bsb_cancel: 'Cancel changes',
+  adc_disabled: 'Disable',
+  adc_gain: 'Gain',
+  adc_input_type: 'Input type',
+  adc_input_type_hint: 'ADC channel input source',
+  adc_input_type_values: ['NORMAL', 'SHORTED', 'BIAS_MEAS', 'MVDD', 'TEMP', 'TESTSIG', 'BIAS_DRP', 'BIAS_DRN'],
+  adc_bias_hint: 'Include the channel input in BIAS generation',
+  adc_bias: 'Bias',
+  adc_SRB2: 'SRB2',
+  adc_SRB2_hint: 'Connect the channel P input to the SRB2 pin',
+  adc_SRB1: 'SRB1',
+  adc_SRB1_hint: 'Disconnect all N inputs from the ADC and connect them to SRB1.',
+  adc_impedance_p: 'Lead-off P',
+  adc_impedance_n: 'Lead-off N',
+  adc_impedance_p_hint: 'Lead-off impedance P (see http://www.ti.com/lit/an/sbaa196/sbaa196.pdf)',
+  adc_impedance_n_hint: 'Lead-off impedance N (see http://www.ti.com/lit/an/sbaa196/sbaa196.pdf)',
+  adc_channel: 'Channel',
+  channels: ['Channel 1', 'Channel 2', 'Channel 3', 'Channel 4', 'Channel 5', 'Channel 6', 'Channel 7', 'Channel 8'],
+  reset_board: 'Reset board'
 }
 
 var i18n_fr = {
@@ -554,6 +359,8 @@ var i18n_fr = {
   select_source: 'Veuillez sélectionner une source de données',
   do_connect: 'Connecter',
   do_disconnect :  'Déconnecter',
+  hide_canvas: 'Cacher le canvas',
+  show_canvas: 'Afficher le canvas',
   option_select_source: 'Sélectionnez une source...',
   option_local_serial: 'Port série via le navigateur : /dev/ttyUSB0',
   option_load_file: 'Charger un fichier...',
@@ -574,13 +381,39 @@ var i18n_fr = {
   close: 'Fermer',
   unknown: 'Inconnu',
     board_state: {
-    'STATE_CLOSED': 'Fermée',
-    'STATE_OPENING': 'Ouverture en cours...',
-    'STATE_INIT': 'Attente réponse carte...',
-    'STATE_IDLE': 'Prête',
-    'STATE_STREAMING': 'Flux de données',
-    'STATE_WAIT_ENDING': 'Occupée...'
-  }
+    STATE_CLOSED: 'Fermée',
+    STATE_OPENING: 'Ouverture en cours...',
+    STATE_INIT: 'Attente réponse carte...',
+    STATE_IDLE: 'Prête',
+    STATE_STREAMING: 'Flux de données',
+    STATE_WAIT_ENDING: 'Occupée...',
+    STATE_WRITING: 'Ecriture...'
+  },
+  board_settings: 'Réglages : ',
+  board_settings_button: 'Réglages',
+  bsb_get: 'Lire les canaux',
+  bsb_get_registers: 'Lire les registres',
+  bsb_set: 'Appliquer les changements',
+  bsb_reset: 'Valeurs par défaut',
+  bsb_cancel: 'Annuler les changements',
+  adc_disabled: 'Désactiver',
+  adc_gain: 'Gain',
+  adc_input_type: "Type d'entrée",
+  adc_input_type_hint: "Source d'entrée du canal",
+  adc_input_type_values: ['NORMAL', 'SHORTED', 'BIAS_MEAS', 'MVDD', 'TEMP', 'TESTSIG', 'BIAS_DRP', 'BIAS_DRN'],
+  adc_bias_hint: "Inclure l'entrée du canal dans la génération du BIAS",
+  adc_bias: 'Bias',
+  adc_SRB2: 'SRB2',
+  adc_SRB2_hint: "Connecter l'entrée P du canal à la broche SRB2",
+  adc_SRB1: 'SRB1',
+  adc_SRB1_hint: "Déconnecter toutes les entrées N de de l'ADC et les connecter à la broche SRB1",
+  adc_impedance_p: 'P',
+  adc_impedance_n: 'N',
+  adc_impedance_p_hint: 'Impédance de fuite P (voir http://www.ti.com/lit/an/sbaa196/sbaa196.pdf)', // 'de fuite' ? 'sans dérivation' ?
+  adc_impedance_n_hint: 'Impédance de fuite N (voir http://www.ti.com/lit/an/sbaa196/sbaa196.pdf)', // 'de fuite' ? 'sans dérivation' ?
+  adc_channel: 'Canal',
+  channels: ['Canal 1', 'Canal 2', 'Canal 3', 'Canal 4', 'Canal 5', 'Canal 6', 'Canal 7', 'Canal 8'],
+  reset_board: 'Reset carte'
 }
 
-var i18n = i18n_fr;
+var i18n = i18n_en;
